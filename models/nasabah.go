@@ -7,3 +7,9 @@ type Nasabah struct {
 	NoHP       string `json:"no_hp"`
 	NoRekening string `json:"no_rekening"`
 }
+
+// Nasabah adalah model untuk data nasabah
+type Tabung struct {
+	NoRekening string  `json:"no_rekening"`
+	Saldo      float64 `json:"saldo"`
+}

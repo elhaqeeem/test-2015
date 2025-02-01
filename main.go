@@ -1,4 +1,3 @@
-// main.go
 package main
 
 import (
@@ -23,6 +22,14 @@ func main() {
 
 	// Initialize Echo router
 	e := echo.New()
+
+	// Middleware untuk menyimpan koneksi database dalam context Echo
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("db", dbConn) // Simpan koneksi database di context
+			return next(c)
+		}
+	})
 
 	// Register routes
 	nasabahHandler := handlers.NewNasabahHandler(dbConn)
