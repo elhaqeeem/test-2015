@@ -6,13 +6,28 @@ import (
 	"golang-echo-postgresql/models"
 )
 
-func CheckExistingNasabah(db *sql.DB, nik, noHP string) (bool, error) {
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM nasabah WHERE nik = $1 OR no_hp = $2", nik, noHP).Scan(&count)
+func CheckExistingNasabah(db *sql.DB, nik, noHP string) (bool, string, error) {
+	var count int // ubah tipe menjadi int untuk menyimpan hasil query
+
+	// Cek duplikat NIK
+	err := db.QueryRow("SELECT COUNT(*) FROM nasabah WHERE nik = $1", nik).Scan(&count)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
-	return count > 0, nil
+	if count > 0 { // Bandingkan dengan angka
+		return true, "NIK", nil
+	}
+
+	// Cek duplikat No HP
+	err = db.QueryRow("SELECT COUNT(*) FROM nasabah WHERE no_hp = $1", noHP).Scan(&count)
+	if err != nil {
+		return false, "", err
+	}
+	if count > 0 { // Bandingkan dengan angka
+		return true, "No HP", nil
+	}
+
+	return false, "", nil
 }
 
 func CreateNasabah(db *sql.DB, nasabah *models.Nasabah) error {

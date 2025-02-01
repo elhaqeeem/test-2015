@@ -27,6 +27,13 @@ func ValidateNIK(nik string) bool {
 	return re.MatchString(nik)
 }
 
+// ValidateNoHP uses a regular expression to validate NoHP (only digits)
+func ValidateNoHP(noHP string) bool {
+	// Regex for No HP: only digits and length between 10 and 15 digits
+	re := regexp.MustCompile(`^\d{10,15}$`)
+	return re.MatchString(noHP)
+}
+
 func (h *NasabahHandler) RegisterNasabah(c echo.Context) error {
 	var nasabah models.Nasabah
 
@@ -49,17 +56,27 @@ func (h *NasabahHandler) RegisterNasabah(c echo.Context) error {
 	// Log the NIK validation success
 	logrus.Infof("Valid NIK format for NIK: %s", nasabah.NIK)
 
+	// Validate No HP format using regex (only digits, 10 to 15 digits long)
+	if !ValidateNoHP(nasabah.NoHP) {
+		logrus.Warnf("Invalid No HP format: %s", nasabah.NoHP)
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid No HP format"})
+	}
+
+	// Log the No HP validation success
+	logrus.Infof("Valid No HP format for No HP: %s", nasabah.NoHP)
+
 	// Check if NIK or No HP already exists
-	existing, err := repositories.CheckExistingNasabah(h.DB, nasabah.NIK, nasabah.NoHP)
+	existing, field, err := repositories.CheckExistingNasabah(h.DB, nasabah.NIK, nasabah.NoHP)
 	if err != nil {
 		// Log error with detailed context
 		logrus.Errorf("Error checking existing nasabah with NIK: %s, NoHP: %s, Error: %v", nasabah.NIK, nasabah.NoHP, err)
 		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Internal server error"})
 	}
+
 	if existing {
-		// Log warning when duplicate NIK or NoHP found
-		logrus.Warnf("Duplicate NIK or No HP detected: NIK=%s, NoHP=%s", nasabah.NIK, nasabah.NoHP)
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "NIK or No HP already used"})
+		// Log warning about specific duplicate (either NIK or No HP)
+		logrus.Warnf("Duplicate %s detected: %s=%s", field, field, nasabah.NIK)
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Duplicate detected", Errors: []string{field + " already used"}})
 	}
 
 	// Generate No Rekening and create Nasabah
