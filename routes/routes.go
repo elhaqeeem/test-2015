@@ -8,5 +8,5 @@ import (
 
 func RegisterRoutes(e *echo.Echo, nasabahHandler *handlers.NasabahHandler) {
 	// Register the route to register a new nasabah
-	e.POST("/nasabah/register", nasabahHandler.RegisterNasabah)
+	e.POST("/daftar", nasabahHandler.RegisterNasabah)
 }

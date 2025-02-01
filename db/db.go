@@ -15,7 +15,7 @@ func InitDB() *sql.DB {
 	cfg := config.LoadConfig()
 
 	// Build the connection string using loaded values
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=require",
 		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName)
 
 	// Open a connection to the PostgreSQL database

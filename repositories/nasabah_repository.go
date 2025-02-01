@@ -17,5 +17,5 @@ func CheckExistingNasabah(db *sql.DB, nik, noHP string) (bool, error) {
 
 func CreateNasabah(db *sql.DB, nasabah *models.Nasabah) error {
 	query := "INSERT INTO nasabah (nama, nik, no_hp, no_rekening) VALUES ($1, $2, $3, $4) RETURNING id"
-	return db.QueryRow(query, nasabah.Nama, nasabah.NIK, nasabah.NoHP, nasabah.NoRekening).Scan(&nasabah.ID)
+	return db.QueryRow(query, nasabah.NIK, nasabah.NoHP, nasabah.NoRekening).Scan(&nasabah.ID)
 }
