@@ -93,3 +93,52 @@ func (h *NasabahHandler) RegisterNasabah(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]string{"no_rekening": nasabah.NoRekening})
 }
+
+func (h *NasabahHandler) TarikDana(c echo.Context) error {
+	var request struct {
+		NoRekening string  `json:"no_rekening"`
+		Nominal    float64 `json:"nominal"`
+	}
+
+	if err := c.Bind(&request); err != nil {
+		logrus.Warnf("Invalid request payload: %v", err)
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid request payload"})
+	}
+
+	// Validasi input
+	if request.Nominal <= 0 {
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Nominal harus lebih dari 0"})
+	}
+
+	// Ambil saldo nasabah
+	saldo, err := repositories.GetSaldo(h.DB, request.NoRekening)
+	if err != nil {
+		logrus.Warnf("No rekening tidak ditemukan: %s", request.NoRekening)
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening tidak ditemukan"})
+	}
+
+	// Cek saldo cukup atau tidak
+	if saldo < request.Nominal {
+		logrus.Warnf("Saldo tidak cukup untuk tarik dana. Saldo saat ini: %.2f", saldo)
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Saldo tidak cukup"})
+	}
+
+	// Kurangi saldo
+	newSaldo := saldo - request.Nominal
+	tabung := &models.Tabung{
+		NoRekening: request.NoRekening,
+		Saldo:      newSaldo,
+	}
+	err = repositories.UpdateSaldo(h.DB, tabung)
+	if err != nil {
+		logrus.Errorf("Gagal memperbarui saldo untuk rekening %s: %v", request.NoRekening, err)
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Gagal memproses transaksi"})
+	}
+
+	logrus.Infof("Tarik dana berhasil. NoRekening: %s, Nominal: %.2f, Saldo Baru: %.2f", request.NoRekening, request.Nominal, newSaldo)
+
+	// Berikan response saldo terbaru
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"saldo": newSaldo,
+	})
+}

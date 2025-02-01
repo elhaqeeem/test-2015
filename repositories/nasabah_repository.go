@@ -65,3 +65,13 @@ func UpdateSaldo(db *sql.DB, tabung *models.Tabung) error {
 	_, err := db.Exec(sql, tabung.Saldo, tabung.NoRekening)
 	return err
 }
+
+// GetSaldo mengambil saldo nasabah berdasarkan no_rekening
+func GetSaldo(db *sql.DB, noRekening string) (float64, error) {
+	var saldo float64
+	err := db.QueryRow("SELECT saldo FROM nasabah WHERE no_rekening = $1", noRekening).Scan(&saldo)
+	if err != nil {
+		return 0, err
+	}
+	return saldo, nil
+}
