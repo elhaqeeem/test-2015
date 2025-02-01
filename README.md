@@ -8,9 +8,11 @@ golang-echo-postgresql/
 │── db/
 │   ├── migrations/
 │   │   ├── 001_create_nasabah_table.sql
+│   │   ├── 002_down.sql
 │   ├── db.go
 │── handlers/
 │   ├── nasabah_handler.go
+│   ├── tabung_handler.go
 │── models/
 │   ├── nasabah.go
 │── repositories/

@@ -1,5 +1,3 @@
--- Menghapus tabel tabungan terlebih dahulu
+ALTER TABLE tabungan DROP CONSTRAINT IF EXISTS tabungan_nasabah_id_fkey;
 DROP TABLE IF EXISTS tabungan;
-
--- Menghapus tabel nasabah
 DROP TABLE IF EXISTS nasabah;
