@@ -20,6 +20,20 @@ func NewNasabahHandler(db *sql.DB) *NasabahHandler {
 	return &NasabahHandler{DB: db}
 }
 
+func MethodNotAllowedHandler(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if c.Request().Method != http.MethodPost && c.Request().Method != http.MethodGet {
+			// Log the Method Not Allowed event with logrus
+			logrus.Warnf("Method Not Allowed: %s %s", c.Request().Method, c.Request().URL.Path)
+			// Send back a response
+			return c.JSON(http.StatusMethodNotAllowed, map[string]string{
+				"message": "Method Not Allowed",
+			})
+		}
+		return next(c)
+	}
+}
+
 // ValidateNIK uses a regular expression to validate NIK format
 func ValidateNIK(nik string) bool {
 	// Regex for valid NIK format
@@ -107,20 +121,20 @@ func (h *NasabahHandler) TarikDana(c echo.Context) error {
 
 	// Validasi input
 	if request.Nominal <= 0 {
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Nominal harus lebih dari 0"})
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "The nominal must be more than 0"})
 	}
 
 	// Ambil saldo nasabah
 	saldo, err := repositories.GetSaldo(h.DB, request.NoRekening)
 	if err != nil {
-		logrus.Warnf("No rekening tidak ditemukan: %s", request.NoRekening)
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening tidak ditemukan"})
+		logrus.Warnf("No rekening Not found: %s", request.NoRekening)
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening Not found"})
 	}
 
 	// Cek saldo cukup atau tidak
 	if saldo < request.Nominal {
-		logrus.Warnf("Saldo tidak cukup untuk tarik dana. Saldo saat ini: %.2f", saldo)
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Saldo tidak cukup"})
+		logrus.Warnf("Insufficient balance to withdraw funds. Current balance: %.2f", saldo)
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Insufficient balance"})
 	}
 
 	// Kurangi saldo
@@ -132,13 +146,35 @@ func (h *NasabahHandler) TarikDana(c echo.Context) error {
 	err = repositories.UpdateSaldo(h.DB, tabung)
 	if err != nil {
 		logrus.Errorf("Gagal memperbarui saldo untuk rekening %s: %v", request.NoRekening, err)
-		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Gagal memproses transaksi"})
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to process transaction"})
 	}
 
-	logrus.Infof("Tarik dana berhasil. NoRekening: %s, Nominal: %.2f, Saldo Baru: %.2f", request.NoRekening, request.Nominal, newSaldo)
+	logrus.Infof("Withdraw funds success. NoRekening: %s, Nominal: %.2f, New Balance: %.2f", request.NoRekening, request.Nominal, newSaldo)
 
 	// Berikan response saldo terbaru
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"saldo": newSaldo,
+	})
+}
+
+func (h *NasabahHandler) GetSaldo(c echo.Context) error {
+	noRekening := c.Param("no_rekening")
+
+	// Log request yang masuk
+	logrus.Infof("Received request to check saldo for NoRekening: %s", noRekening)
+
+	// Ambil saldo nasabah
+	saldo, err := repositories.GetSaldo(h.DB, noRekening)
+	if err != nil {
+		logrus.Warnf("No rekening not found: %s", noRekening)
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening not found"})
+	}
+
+	// Log informasi saldo yang berhasil diambil
+	logrus.Infof("Saldo retrieved for NoRekening: %s, Saldo: %.2f", noRekening, saldo)
+
+	// Berikan response saldo
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"saldo": saldo,
 	})
 }

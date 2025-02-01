@@ -11,5 +11,6 @@ func RegisterRoutes(e *echo.Echo, nasabahHandler *handlers.NasabahHandler) {
 	e.POST("/daftar", nasabahHandler.RegisterNasabah)
 	e.POST("/tabung", handlers.Tabung)
 	e.POST("/tarik", nasabahHandler.TarikDana)
+	e.GET("/saldo/:no_rekening", nasabahHandler.GetSaldo)
 
 }
