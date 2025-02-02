@@ -6,6 +6,7 @@ import (
 	"golang-echo-postgresql/handlers"
 	"golang-echo-postgresql/routes"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,26 +17,41 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// MethodNotAllowedHandler custom handler untuk menangani HTTP Method yang tidak diizinkan
+func MethodNotAllowedHandler(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if c.Request().Method != http.MethodPost && c.Request().Method != http.MethodGet {
+			// Log event Method Not Allowed dengan logrus
+			logrus.Warnf("Method Not Allowed: %s %s", c.Request().Method, c.Request().URL.Path)
+			// Kirim response kembali
+			return c.JSON(http.StatusMethodNotAllowed, map[string]string{
+				"message": "Method Not Allowed",
+			})
+		}
+		return next(c)
+	}
+}
+
 func main() {
-	// Initialize logrus configuration
+	// Konfigurasi logrus
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
-	logrus.SetLevel(logrus.DebugLevel) // Ensure that all logs are shown
+	logrus.SetLevel(logrus.DebugLevel) // Memastikan semua log ditampilkan
 
-	// Load environment variables
+	// Memuat variabel lingkungan
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found")
 	}
 
-	// Initialize database
+	// Inisialisasi koneksi database
 	dbConn := db.InitDB()
 	defer dbConn.Close()
 
-	// Initialize Echo router
+	// Inisialisasi Echo router
 	e := echo.New()
 
-	// Middleware to store database connection in the Echo context
+	// Middleware untuk menyimpan koneksi database ke dalam context Echo
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			c.Set("db", dbConn)
@@ -43,32 +59,35 @@ func main() {
 		}
 	})
 
-	// Register routes
+	// Daftarkan route handler untuk Nasabah
 	nasabahHandler := handlers.NewNasabahHandler(dbConn)
 	routes.RegisterRoutes(e, nasabahHandler)
 
-	// Start the server in a separate goroutine
+	// Menambahkan handler untuk method not allowed
+	e.Use(MethodNotAllowedHandler)
+
+	// Mulai server di goroutine terpisah
 	go func() {
 		if err := e.Start(":8080"); err != nil {
 			logrus.Fatalf("Shutting down the server: %v", err)
 		}
 	}()
 
-	// Create a channel to listen for termination signals
+	// Membuat channel untuk mendengarkan sinyal penghentian
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for a termination signal
+	// Menunggu sinyal penghentian
 	<-stop
 
-	// Initiate graceful shutdown
+	// Inisiasi graceful shutdown
 	logrus.Info("Received shutdown signal. Shutting down gracefully...")
 
-	// Create a context with timeout for graceful shutdown
+	// Membuat context dengan timeout untuk graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Attempt to stop the Echo server gracefully
+	// Coba untuk menghentikan server Echo secara graceful
 	if err := e.Shutdown(ctx); err != nil {
 		logrus.Errorf("Error during graceful shutdown: %v", err)
 	} else {
