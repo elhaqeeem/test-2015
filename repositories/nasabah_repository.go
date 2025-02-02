@@ -2,11 +2,18 @@ package repositories
 
 import (
 	"database/sql"
+	"fmt"
 	"golang-echo-postgresql/models"
+	"time"
 
 	_ "github.com/lib/pq" // Import driver PostgreSQL
-	"github.com/sirupsen/logrus"
 )
+
+type Executor interface {
+	QueryRow(query string, args ...interface{}) *sql.Row
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
 
 // Fungsi untuk memeriksa apakah NIK atau No HP sudah ada di database
 func CheckExistingNasabah(db *sql.DB, nik, noHP string) (bool, []string, error) {
@@ -44,35 +51,75 @@ func CreateNasabah(db *sql.DB, nasabah *models.Nasabah) error {
 	return nil
 }
 
-// GetNasabahByNoRekening mengambil data tabungan berdasarkan no_rekening
-func GetNasabahByNoRekening(db *sql.DB, noRekening string) (*models.Tabung, error) {
-	var tabung models.Tabung
-	sqlQuery := `SELECT no_rekening, saldo FROM nasabah WHERE no_rekening = $1`
-
-	err := db.QueryRow(sqlQuery, noRekening).Scan(&tabung.NoRekening, &tabung.Saldo)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, err
-		}
-		logrus.Errorf("Database query error: %v", err) // Tambahkan logging
-		return nil, err
-	}
-	return &tabung, nil
-}
-
-// Fungsi untuk memperbarui saldo nasabah berdasarkan no_rekening
-func UpdateSaldo(db *sql.DB, tabung *models.Tabung) error {
-	sql := `UPDATE nasabah SET saldo = $1 WHERE no_rekening = $2`
-	_, err := db.Exec(sql, tabung.Saldo, tabung.NoRekening)
+// InsertTabungan inserts a new transaction record in the tabungan table
+func InsertTabungan(executor Executor, nasabahID int, jenisTransaksi string, nominal float64) error {
+	_, err := executor.Exec("INSERT INTO tabungan (nasabah_id, jenis_transaksi, nominal, created_at) VALUES ($1, $2, $3, $4)", nasabahID, jenisTransaksi, nominal, time.Now())
 	return err
 }
 
-// GetSaldo mengambil saldo nasabah berdasarkan no_rekening
-func GetSaldo(db *sql.DB, noRekening string) (float64, error) {
+func GetNasabahByNoRekening(executor Executor, noRekening string) (*models.Nasabah, error) {
+	var nasabah models.Nasabah
+	err := executor.QueryRow("SELECT id, nik, no_hp, no_rekening, saldo FROM nasabah WHERE no_rekening = $1", noRekening).
+		Scan(&nasabah.ID, &nasabah.NIK, &nasabah.NoHP, &nasabah.NoRekening, &nasabah.Saldo)
+	if err != nil {
+		return nil, err
+	}
+	return &nasabah, nil
+}
+func UpdateSaldo(tx *sql.Tx, noRekening string, jenisTransaksi string, nominal float64) error {
+	var saldoSaatIni float64
+	// Mengunci saldo untuk menghindari race condition
+	err := tx.QueryRow("SELECT saldo FROM nasabah WHERE no_rekening = $1 FOR UPDATE", noRekening).Scan(&saldoSaatIni)
+	if err != nil {
+		return fmt.Errorf("gagal mendapatkan saldo: %v", err)
+	}
+
+	// Validasi jika transaksi adalah penarikan
+	if jenisTransaksi == "tarik" && saldoSaatIni < nominal {
+		return fmt.Errorf("saldo tidak mencukupi")
+	}
+
+	// Hitung saldo baru
+	var saldoBaru float64
+	if jenisTransaksi == "setor" {
+		saldoBaru = saldoSaatIni + nominal
+	} else {
+		saldoBaru = saldoSaatIni - nominal
+	}
+
+	// Update saldo tanpa commit
+	_, err = tx.Exec("UPDATE nasabah SET saldo = $1 WHERE no_rekening = $2", saldoBaru, noRekening)
+	if err != nil {
+		return fmt.Errorf("gagal memperbarui saldo: %v", err)
+	}
+
+	return nil // Jangan commit di sini
+}
+
+func GetSaldo(executor Executor, noRekening string) (float64, error) {
 	var saldo float64
-	err := db.QueryRow("SELECT saldo FROM nasabah WHERE no_rekening = $1", noRekening).Scan(&saldo)
+	err := executor.QueryRow("SELECT saldo FROM nasabah WHERE no_rekening = $1", noRekening).Scan(&saldo)
 	if err != nil {
 		return 0, err
 	}
 	return saldo, nil
+}
+
+func GetRiwayatTransaksi(executor Executor, nasabahID int) ([]models.Tabungan, error) {
+	var riwayat []models.Tabungan
+	rows, err := executor.Query("SELECT id, nasabah_id, jenis_transaksi, nominal, created_at FROM tabungan WHERE nasabah_id = $1", nasabahID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var t models.Tabungan
+		if err := rows.Scan(&t.ID, &t.NasabahID, &t.JenisTransaksi, &t.Nominal, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+		riwayat = append(riwayat, t)
+	}
+
+	return riwayat, nil
 }

@@ -34,7 +34,6 @@ func main() {
 
 	// Initialize Echo router
 	e := echo.New()
-	e.Use(handlers.MethodNotAllowedHandler)
 
 	// Middleware to store database connection in the Echo context
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {

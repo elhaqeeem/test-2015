@@ -11,7 +11,9 @@ CREATE TABLE nasabah (
 CREATE TABLE tabungan (
     id SERIAL PRIMARY KEY,
     nasabah_id INT NOT NULL,
-    nominal DECIMAL(15, 2) NOT NULL,
+    jenis_transaksi VARCHAR(10) NOT NULL CHECK (jenis_transaksi IN ('setor', 'tarik')),
+    nominal DECIMAL(15, 2) NOT NULL CHECK (nominal > 0),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (nasabah_id) REFERENCES nasabah(id) ON DELETE CASCADE
 );
+

@@ -6,11 +6,10 @@ import (
 	"golang-echo-postgresql/repositories"
 	"golang-echo-postgresql/utils"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sirupsen/logrus" // Import logrus
+	log "github.com/sirupsen/logrus"
 )
 
 type NasabahHandler struct {
@@ -21,175 +20,271 @@ func NewNasabahHandler(db *sql.DB) *NasabahHandler {
 	return &NasabahHandler{DB: db}
 }
 
-func MethodNotAllowedHandler(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		if c.Request().Method != http.MethodPost && c.Request().Method != http.MethodGet {
-			logrus.WithFields(logrus.Fields{
-				"method": c.Request().Method,
-				"path":   c.Request().URL.Path,
-			}).Warn("Method Not Allowed")
-			return c.JSON(http.StatusMethodNotAllowed, map[string]string{"remark": "Method Not Allowed"})
-		}
-		return next(c)
-	}
-}
-
-// ValidateNIK uses a regular expression to validate NIK format
-func ValidateNIK(nik string) bool {
-	// Regex for valid NIK format
-	re := regexp.MustCompile(`^(1[1-9]|21|[37][1-6]|5[1-3]|6[1-5]|[89][12])\d{2}\d{2}([04][1-9]|[1256][0-9]|[37][01])(0[1-9]|1[0-2])\d{2}\d{4}$`)
-	return re.MatchString(nik)
-}
-
-// ValidateNoHP uses a regular expression to validate NoHP (only digits)
-func ValidateNoHP(noHP string) bool {
-	// Regex for No HP: only digits and length between 10 and 15 digits
-	re := regexp.MustCompile(`^\d{10,15}$`)
-	return re.MatchString(noHP)
-}
-
 func (h *NasabahHandler) RegisterNasabah(c echo.Context) error {
 	var nasabah models.Nasabah
+	log.Info("Starting RegisterNasabah process")
 
-	// Bind request body ke struct
 	if err := c.Bind(&nasabah); err != nil {
-		logrus.WithFields(logrus.Fields{
-			"status": http.StatusBadRequest,
-			"error":  err.Error(),
-		}).Error("Failed to parse request body")
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to bind request data")
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid request format"})
 	}
 
-	// Validasi NIK
-	if !ValidateNIK(nasabah.NIK) {
-		logrus.WithFields(logrus.Fields{
-			"status": http.StatusBadRequest,
-			"NIK":    nasabah.NIK,
-		}).Warn("Invalid NIK format")
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid NIK format"})
-	}
-	logrus.WithFields(logrus.Fields{
-		"status": http.StatusOK,
-		"NIK":    nasabah.NIK,
-	}).Info("Valid NIK format")
+	log.WithFields(log.Fields{
+		"NIK":  nasabah.NIK,
+		"NoHP": nasabah.NoHP,
+	}).Info("Validating NIK and No HP")
 
-	// Validasi No HP
-	if !ValidateNoHP(nasabah.NoHP) {
-		logrus.WithFields(logrus.Fields{
-			"status": http.StatusBadRequest,
-			"NoHP":   nasabah.NoHP,
-		}).Warn("Invalid No HP format")
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid No HP format"})
+	if !utils.ValidateNIK(nasabah.NIK) || !utils.ValidateNoHP(nasabah.NoHP) {
+		log.Warn("Invalid NIK or No HP format")
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid NIK or No HP format"})
 	}
-	logrus.WithFields(logrus.Fields{
-		"status": http.StatusOK,
-		"NoHP":   nasabah.NoHP,
-	}).Info("Valid No HP format")
 
-	// Cek apakah NIK atau No HP sudah ada di database
 	exists, fields, err := repositories.CheckExistingNasabah(h.DB, nasabah.NIK, nasabah.NoHP)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"status": http.StatusInternalServerError,
-			"NIK":    nasabah.NIK,
-			"NoHP":   nasabah.NoHP,
-			"error":  err.Error(),
-		}).Error("Error checking existing nasabah")
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Database error while checking existing nasabah")
 		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Internal server error"})
 	}
 
 	if exists {
-		logrus.WithFields(logrus.Fields{
-			"status": http.StatusBadRequest,
-			"fields": strings.Join(fields, ", "),
-		}).Warn("Duplicate detected")
+		log.WithFields(log.Fields{
+			"fields": fields,
+		}).Warn("Duplicate nasabah detected")
 		return c.JSON(http.StatusBadRequest, utils.Response{
 			Remark: "Duplicate detected",
 			Errors: []string{strings.Join(fields, " and ") + " already used"},
 		})
 	}
 
-	// Generate No Rekening dan simpan data nasabah
 	nasabah.NoRekening = utils.GenerateAccountNumber()
+	log.WithFields(log.Fields{
+		"NoRekening": nasabah.NoRekening,
+	}).Info("Generated account number")
+
 	err = repositories.CreateNasabah(h.DB, &nasabah)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"status": http.StatusInternalServerError,
-			"error":  err.Error(),
-		}).Error("Failed to create nasabah in DB")
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to register nasabah")
 		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to register nasabah"})
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"status":     http.StatusOK,
+	log.WithFields(log.Fields{
 		"NoRekening": nasabah.NoRekening,
-		"NIK":        nasabah.NIK,
-		"NoHP":       nasabah.NoHP,
-	}).Info("Successfully registered nasabah")
+	}).Info("Nasabah registered successfully")
 
 	return c.JSON(http.StatusOK, map[string]string{"no_rekening": nasabah.NoRekening})
 }
 
 func (h *NasabahHandler) TarikDana(c echo.Context) error {
-	var request struct {
-		NoRekening string  `json:"no_rekening"`
-		Nominal    float64 `json:"nominal"`
-	}
+	var request models.Tabung
+	log.Info("Starting TarikDana process")
+
 	if err := c.Bind(&request); err != nil {
-		logrus.WithFields(logrus.Fields{"handler": "TarikDana", "error": err.Error()}).Warn("Invalid request payload")
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to bind request data")
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid request payload"})
 	}
 
-	saldo, err := repositories.GetSaldo(h.DB, request.NoRekening)
+	tx, err := h.DB.Begin()
 	if err != nil {
-		logrus.WithFields(logrus.Fields{"handler": "TarikDana", "NoRekening": request.NoRekening}).Warn("No rekening Not found")
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening Not found"})
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to start transaction")
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to start transaction"})
 	}
 
-	if saldo < request.Nominal {
-		logrus.WithFields(logrus.Fields{"handler": "TarikDana", "saldo": saldo}).Warn("Insufficient balance")
+	nasabah, err := repositories.GetNasabahByNoRekening(tx, request.NoRekening)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error":      err,
+			"NoRekening": request.NoRekening,
+		}).Error("No rekening not found")
+		tx.Rollback()
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening not found"})
+	}
+
+	if nasabah.Saldo < request.Nominal {
+		log.WithFields(log.Fields{
+			"Saldo":            nasabah.Saldo,
+			"RequestedNominal": request.Nominal,
+		}).Warn("Insufficient balance")
+		tx.Rollback()
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Insufficient balance"})
 	}
 
-	tabung := &models.Tabung{NoRekening: request.NoRekening, Saldo: saldo - request.Nominal}
-	if err := repositories.UpdateSaldo(h.DB, tabung); err != nil {
-		logrus.WithFields(logrus.Fields{"handler": "TarikDana", "error": err.Error()}).Error("Failed to update saldo")
+	nasabah.Saldo -= request.Nominal
+	err = repositories.UpdateSaldo(tx, nasabah.NoRekening, "tarik", request.Nominal)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to update saldo")
+		tx.Rollback()
 		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to process transaction"})
 	}
 
-	logrus.WithFields(logrus.Fields{"handler": "TarikDana", "NoRekening": request.NoRekening, "Nominal": request.Nominal, "NewSaldo": tabung.Saldo}).Info("Withdraw funds success")
+	repositories.InsertTabungan(tx, nasabah.ID, "tarik", request.Nominal)
 
-	return c.JSON(http.StatusOK, map[string]interface{}{"saldo": tabung.Saldo})
+	if err := tx.Commit(); err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to commit transaction")
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to commit transaction"})
+	}
+
+	log.WithFields(log.Fields{
+		"NoRekening":     nasabah.NoRekening,
+		"RemainingSaldo": nasabah.Saldo,
+	}).Info("Transaction successful")
+
+	return c.JSON(http.StatusOK, map[string]interface{}{"saldo": nasabah.Saldo})
+}
+
+func (h *NasabahHandler) Nabung(c echo.Context) error {
+	var request models.Tabung
+	log.Info("Starting Nabung process")
+
+	if err := c.Bind(&request); err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to bind request data")
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid request payload"})
+	}
+
+	tx, err := h.DB.Begin()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to start transaction")
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to start transaction"})
+	}
+
+	nasabah, err := repositories.GetNasabahByNoRekening(tx, request.NoRekening)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error":      err,
+			"NoRekening": request.NoRekening,
+		}).Error("No rekening not found")
+		tx.Rollback()
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening not found"})
+	}
+
+	nasabah.Saldo += request.Nominal
+	err = repositories.UpdateSaldo(tx, nasabah.NoRekening, "setor", request.Nominal)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error":      err,
+			"NoRekening": nasabah.NoRekening,
+		}).Error("Failed to update saldo")
+		tx.Rollback()
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to process transaction"})
+	}
+
+	repositories.InsertTabungan(tx, nasabah.ID, "setor", request.Nominal)
+
+	if err := tx.Commit(); err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to commit transaction")
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to commit transaction"})
+	}
+
+	log.WithFields(log.Fields{
+		"NoRekening":   nasabah.NoRekening,
+		"UpdatedSaldo": nasabah.Saldo,
+	}).Info("Deposit successful")
+
+	return c.JSON(http.StatusOK, map[string]interface{}{"saldo": nasabah.Saldo})
 }
 
 func (h *NasabahHandler) GetSaldo(c echo.Context) error {
 	noRekening := c.Param("no_rekening")
-
-	// Log request yang masuk
-	logrus.WithFields(logrus.Fields{
-		"handler":    "GetSaldo",
+	log.WithFields(log.Fields{
 		"NoRekening": noRekening,
-	}).Info("Received request to check Balance")
+	}).Info("Starting GetSaldo process")
 
-	// Ambil saldo nasabah
-	saldo, err := repositories.GetSaldo(h.DB, noRekening)
+	tx, err := h.DB.Begin()
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"handler":    "GetSaldo",
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to start transaction")
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to start transaction"})
+	}
+
+	saldo, err := repositories.GetSaldo(tx, noRekening)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error":      err,
 			"NoRekening": noRekening,
-		}).Warn("No rekening not found")
+		}).Error("No rekening found")
+		tx.Rollback()
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening not found"})
 	}
 
-	// Log informasi saldo yang berhasil diambil
-	logrus.WithFields(logrus.Fields{
-		"handler":    "GetSaldo",
+	if err := tx.Commit(); err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to commit transaction")
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to commit transaction"})
+	}
+
+	log.WithFields(log.Fields{
 		"NoRekening": noRekening,
 		"Saldo":      saldo,
-	}).Info("Saldo retrieved")
+	}).Info("Retrieved saldo successfully")
 
-	// Berikan response saldo
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"saldo": saldo,
-	})
+	return c.JSON(http.StatusOK, map[string]interface{}{"saldo": saldo})
+}
+
+func (h *NasabahHandler) GetRiwayatTransaksi(c echo.Context) error {
+	noRekening := c.Param("no_rekening")
+	log.WithFields(log.Fields{
+		"NoRekening": noRekening,
+	}).Info("Starting GetRiwayatTransaksi process")
+
+	tx, err := h.DB.Begin()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to start transaction")
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to start transaction"})
+	}
+
+	nasabah, err := repositories.GetNasabahByNoRekening(tx, noRekening)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error":      err,
+			"NoRekening": noRekening,
+		}).Error("No rekening found")
+		tx.Rollback()
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening not found"})
+	}
+
+	riwayat, err := repositories.GetRiwayatTransaksi(tx, nasabah.ID)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error":     err,
+			"NasabahID": nasabah.ID,
+		}).Error("Failed to retrieve transaction history")
+		tx.Rollback()
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to retrieve transaction history"})
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to commit transaction")
+		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to commit transaction"})
+	}
+
+	log.WithFields(log.Fields{
+		"NoRekening":   noRekening,
+		"Transactions": len(riwayat),
+	}).Info("Transaction history retrieved successfully")
+
+	return c.JSON(http.StatusOK, riwayat)
 }
