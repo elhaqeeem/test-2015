@@ -1,3 +1,35 @@
+
+# Technologi
+
+golang ( Echo )
+database ( postgresql )
+Log ( logrus )
+Container ( docker )
+
+# Instalasi
+
+Buat .env
+```
+DB_HOST=
+DB_PORT=
+DB_USER=
+DB_PASSWORD=
+DB_NAME=
+API_HOST=
+API_PORT=
+
+```
+
+jalankan 
+
+```
+go run main.go
+
+```
+
+
+# Struktur file
+
 ```
 Struktur file
 
