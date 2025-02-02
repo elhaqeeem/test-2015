@@ -9,28 +9,29 @@ import (
 )
 
 // Fungsi untuk memeriksa apakah NIK atau No HP sudah ada di database
-func CheckExistingNasabah(db *sql.DB, nik, noHP string) (bool, string, error) {
-	var count int
+func CheckExistingNasabah(db *sql.DB, nik, noHP string) (bool, []string, error) {
+	var existingFields []string
 
-	// Cek duplikat NIK
-	err := db.QueryRow("SELECT COUNT(*) FROM nasabah WHERE nik = $1", nik).Scan(&count)
+	query := `
+		SELECT 
+			CASE WHEN EXISTS (SELECT 1 FROM nasabah WHERE nik = $1) THEN 'NIK' ELSE NULL END AS nik_exists,
+			CASE WHEN EXISTS (SELECT 1 FROM nasabah WHERE no_hp = $2) THEN 'No HP' ELSE NULL END AS no_hp_exists
+	`
+
+	var nikExists, noHPExists sql.NullString
+	err := db.QueryRow(query, nik, noHP).Scan(&nikExists, &noHPExists)
 	if err != nil {
-		return false, "", err
-	}
-	if count > 0 { // Jika ada duplikat NIK
-		return true, "NIK", nil
+		return false, nil, err
 	}
 
-	// Cek duplikat No HP
-	err = db.QueryRow("SELECT COUNT(*) FROM nasabah WHERE no_hp = $1", noHP).Scan(&count)
-	if err != nil {
-		return false, "", err
+	if nikExists.Valid {
+		existingFields = append(existingFields, "NIK")
 	}
-	if count > 0 { // Jika ada duplikat No HP
-		return true, "No HP", nil
+	if noHPExists.Valid {
+		existingFields = append(existingFields, "No HP")
 	}
 
-	return false, "", nil
+	return len(existingFields) > 0, existingFields, nil
 }
 
 // Fungsi untuk membuat data nasabah baru

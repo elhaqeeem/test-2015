@@ -7,6 +7,7 @@ import (
 	"golang-echo-postgresql/utils"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus" // Import logrus
@@ -23,12 +24,11 @@ func NewNasabahHandler(db *sql.DB) *NasabahHandler {
 func MethodNotAllowedHandler(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		if c.Request().Method != http.MethodPost && c.Request().Method != http.MethodGet {
-			// Log the Method Not Allowed event with logrus
-			logrus.Warnf("Method Not Allowed: %s %s", c.Request().Method, c.Request().URL.Path)
-			// Send back a response
-			return c.JSON(http.StatusMethodNotAllowed, map[string]string{
-				"message": "Method Not Allowed",
-			})
+			logrus.WithFields(logrus.Fields{
+				"method": c.Request().Method,
+				"path":   c.Request().URL.Path,
+			}).Warn("Method Not Allowed")
+			return c.JSON(http.StatusMethodNotAllowed, map[string]string{"remark": "Method Not Allowed"})
 		}
 		return next(c)
 	}
@@ -51,59 +51,81 @@ func ValidateNoHP(noHP string) bool {
 func (h *NasabahHandler) RegisterNasabah(c echo.Context) error {
 	var nasabah models.Nasabah
 
-	// Log when a new request is received
-	logrus.Infof("Received request to register nasabah with IP: %s", c.Request().RemoteAddr)
+	// Bind request body ke struct
 	if err := c.Bind(&nasabah); err != nil {
-		logrus.Warnf("Failed to bind request body: %v", err)
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid request payload"})
+		logrus.WithFields(logrus.Fields{
+			"status": http.StatusBadRequest,
+			"error":  err.Error(),
+		}).Error("Failed to parse request body")
+		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid request format"})
 	}
 
-	// Log the received data (be cautious about logging sensitive info like NIK)
-	logrus.Debugf("Received nasabah data: %+v", nasabah)
-
-	// Validate NIK format using regex
+	// Validasi NIK
 	if !ValidateNIK(nasabah.NIK) {
-		logrus.Warnf("Invalid NIK format: %s", nasabah.NIK)
+		logrus.WithFields(logrus.Fields{
+			"status": http.StatusBadRequest,
+			"NIK":    nasabah.NIK,
+		}).Warn("Invalid NIK format")
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid NIK format"})
 	}
+	logrus.WithFields(logrus.Fields{
+		"status": http.StatusOK,
+		"NIK":    nasabah.NIK,
+	}).Info("Valid NIK format")
 
-	// Log the NIK validation success
-	logrus.Infof("Valid NIK format for NIK: %s", nasabah.NIK)
-
-	// Validate No HP format using regex (only digits, 10 to 15 digits long)
+	// Validasi No HP
 	if !ValidateNoHP(nasabah.NoHP) {
-		logrus.Warnf("Invalid No HP format: %s", nasabah.NoHP)
+		logrus.WithFields(logrus.Fields{
+			"status": http.StatusBadRequest,
+			"NoHP":   nasabah.NoHP,
+		}).Warn("Invalid No HP format")
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid No HP format"})
 	}
+	logrus.WithFields(logrus.Fields{
+		"status": http.StatusOK,
+		"NoHP":   nasabah.NoHP,
+	}).Info("Valid No HP format")
 
-	// Log the No HP validation success
-	logrus.Infof("Valid No HP format for No HP: %s", nasabah.NoHP)
-
-	// Check if NIK or No HP already exists
-	existing, field, err := repositories.CheckExistingNasabah(h.DB, nasabah.NIK, nasabah.NoHP)
+	// Cek apakah NIK atau No HP sudah ada di database
+	exists, fields, err := repositories.CheckExistingNasabah(h.DB, nasabah.NIK, nasabah.NoHP)
 	if err != nil {
-		// Log error with detailed context
-		logrus.Errorf("Error checking existing nasabah with NIK: %s, NoHP: %s, Error: %v", nasabah.NIK, nasabah.NoHP, err)
+		logrus.WithFields(logrus.Fields{
+			"status": http.StatusInternalServerError,
+			"NIK":    nasabah.NIK,
+			"NoHP":   nasabah.NoHP,
+			"error":  err.Error(),
+		}).Error("Error checking existing nasabah")
 		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Internal server error"})
 	}
 
-	if existing {
-		// Log warning about specific duplicate (either NIK or No HP)
-		logrus.Warnf("Duplicate %s detected: %s=%s", field, field, nasabah.NIK)
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Duplicate detected", Errors: []string{field + " already used"}})
+	if exists {
+		logrus.WithFields(logrus.Fields{
+			"status": http.StatusBadRequest,
+			"fields": strings.Join(fields, ", "),
+		}).Warn("Duplicate detected")
+		return c.JSON(http.StatusBadRequest, utils.Response{
+			Remark: "Duplicate detected",
+			Errors: []string{strings.Join(fields, " and ") + " already used"},
+		})
 	}
 
-	// Generate No Rekening and create Nasabah
+	// Generate No Rekening dan simpan data nasabah
 	nasabah.NoRekening = utils.GenerateAccountNumber()
 	err = repositories.CreateNasabah(h.DB, &nasabah)
 	if err != nil {
-		// Log error when failing to create nasabah
-		logrus.Errorf("Failed to create nasabah in DB: %v", err)
+		logrus.WithFields(logrus.Fields{
+			"status": http.StatusInternalServerError,
+			"error":  err.Error(),
+		}).Error("Failed to create nasabah in DB")
 		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to register nasabah"})
 	}
 
-	// Log success when nasabah is created
-	logrus.Infof("Successfully registered nasabah with NoRekening: %s", nasabah.NoRekening)
+	logrus.WithFields(logrus.Fields{
+		"status":     http.StatusOK,
+		"NoRekening": nasabah.NoRekening,
+		"NIK":        nasabah.NIK,
+		"NoHP":       nasabah.NoHP,
+	}).Info("Successfully registered nasabah")
 
 	return c.JSON(http.StatusOK, map[string]string{"no_rekening": nasabah.NoRekening})
 }
@@ -113,65 +135,58 @@ func (h *NasabahHandler) TarikDana(c echo.Context) error {
 		NoRekening string  `json:"no_rekening"`
 		Nominal    float64 `json:"nominal"`
 	}
-
 	if err := c.Bind(&request); err != nil {
-		logrus.Warnf("Invalid request payload: %v", err)
+		logrus.WithFields(logrus.Fields{"handler": "TarikDana", "error": err.Error()}).Warn("Invalid request payload")
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Invalid request payload"})
 	}
 
-	// Validasi input
-	if request.Nominal <= 0 {
-		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "The nominal must be more than 0"})
-	}
-
-	// Ambil saldo nasabah
 	saldo, err := repositories.GetSaldo(h.DB, request.NoRekening)
 	if err != nil {
-		logrus.Warnf("No rekening Not found: %s", request.NoRekening)
+		logrus.WithFields(logrus.Fields{"handler": "TarikDana", "NoRekening": request.NoRekening}).Warn("No rekening Not found")
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening Not found"})
 	}
 
-	// Cek saldo cukup atau tidak
 	if saldo < request.Nominal {
-		logrus.Warnf("Insufficient balance to withdraw funds. Current balance: %.2f", saldo)
+		logrus.WithFields(logrus.Fields{"handler": "TarikDana", "saldo": saldo}).Warn("Insufficient balance")
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "Insufficient balance"})
 	}
 
-	// Kurangi saldo
-	newSaldo := saldo - request.Nominal
-	tabung := &models.Tabung{
-		NoRekening: request.NoRekening,
-		Saldo:      newSaldo,
-	}
-	err = repositories.UpdateSaldo(h.DB, tabung)
-	if err != nil {
-		logrus.Errorf("Gagal memperbarui saldo untuk rekening %s: %v", request.NoRekening, err)
+	tabung := &models.Tabung{NoRekening: request.NoRekening, Saldo: saldo - request.Nominal}
+	if err := repositories.UpdateSaldo(h.DB, tabung); err != nil {
+		logrus.WithFields(logrus.Fields{"handler": "TarikDana", "error": err.Error()}).Error("Failed to update saldo")
 		return c.JSON(http.StatusInternalServerError, utils.Response{Remark: "Failed to process transaction"})
 	}
 
-	logrus.Infof("Withdraw funds success. NoRekening: %s, Nominal: %.2f, New Balance: %.2f", request.NoRekening, request.Nominal, newSaldo)
+	logrus.WithFields(logrus.Fields{"handler": "TarikDana", "NoRekening": request.NoRekening, "Nominal": request.Nominal, "NewSaldo": tabung.Saldo}).Info("Withdraw funds success")
 
-	// Berikan response saldo terbaru
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"saldo": newSaldo,
-	})
+	return c.JSON(http.StatusOK, map[string]interface{}{"saldo": tabung.Saldo})
 }
 
 func (h *NasabahHandler) GetSaldo(c echo.Context) error {
 	noRekening := c.Param("no_rekening")
 
 	// Log request yang masuk
-	logrus.Infof("Received request to check saldo for NoRekening: %s", noRekening)
+	logrus.WithFields(logrus.Fields{
+		"handler":    "GetSaldo",
+		"NoRekening": noRekening,
+	}).Info("Received request to check Balance")
 
 	// Ambil saldo nasabah
 	saldo, err := repositories.GetSaldo(h.DB, noRekening)
 	if err != nil {
-		logrus.Warnf("No rekening not found: %s", noRekening)
+		logrus.WithFields(logrus.Fields{
+			"handler":    "GetSaldo",
+			"NoRekening": noRekening,
+		}).Warn("No rekening not found")
 		return c.JSON(http.StatusBadRequest, utils.Response{Remark: "No rekening not found"})
 	}
 
 	// Log informasi saldo yang berhasil diambil
-	logrus.Infof("Saldo retrieved for NoRekening: %s, Saldo: %.2f", noRekening, saldo)
+	logrus.WithFields(logrus.Fields{
+		"handler":    "GetSaldo",
+		"NoRekening": noRekening,
+		"Saldo":      saldo,
+	}).Info("Saldo retrieved")
 
 	// Berikan response saldo
 	return c.JSON(http.StatusOK, map[string]interface{}{
