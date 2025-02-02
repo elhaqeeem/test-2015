@@ -1,4 +1,6 @@
 ```
+Struktur file
+
 golang-echo-postgresql/
 │── main.go                  # Entry point aplikasi
 │── go.mod                   # Modul Go untuk dependensi
