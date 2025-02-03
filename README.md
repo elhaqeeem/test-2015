@@ -10,6 +10,8 @@ Container ( docker )
 
 # Instalasi
 
+## 1 
+
 Buat .env
 ```
 DB_HOST=
@@ -21,8 +23,13 @@ API_HOST=
 API_PORT=
 
 ```
-
-jalankan 
+## 2
+jalankan migrate 
+```
+migrate -path db/migrations -database "service url databases" up
+```
+## 3
+jalankan aplikasi
 jika mengunakan docker
 ```
 
