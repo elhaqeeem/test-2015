@@ -1,10 +1,12 @@
 
 # Technologi
 
+```
 golang ( Echo )
 database ( postgresql )
 Log ( logrus )
 Container ( docker )
+```
 
 # Instalasi
 

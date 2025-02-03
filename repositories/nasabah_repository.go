@@ -43,8 +43,8 @@ func CheckExistingNasabah(db *sql.DB, nik, noHP string) (bool, []string, error) 
 
 // Fungsi untuk membuat data nasabah baru
 func CreateNasabah(db *sql.DB, nasabah *models.Nasabah) error {
-	query := "INSERT INTO nasabah (nik, no_hp, no_rekening) VALUES ($1, $2, $3) RETURNING id"
-	err := db.QueryRow(query, nasabah.NIK, nasabah.NoHP, nasabah.NoRekening).Scan(&nasabah.ID)
+	query := "INSERT INTO nasabah (nik,nama, no_hp, no_rekening) VALUES ($1, $2, $3, $4) RETURNING id"
+	err := db.QueryRow(query, nasabah.NIK, nasabah.Nama, nasabah.NoHP, nasabah.NoRekening).Scan(&nasabah.ID)
 	if err != nil {
 		return err
 	}

@@ -32,6 +32,7 @@ func (h *NasabahHandler) RegisterNasabah(c echo.Context) error {
 	}
 
 	log.WithFields(log.Fields{
+		"Nama": nasabah.Nama,
 		"NIK":  nasabah.NIK,
 		"NoHP": nasabah.NoHP,
 	}).Info("Validating NIK and No HP")

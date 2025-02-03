@@ -6,6 +6,7 @@ import "time"
 type Nasabah struct {
 	ID         int     `json:"id"`
 	NIK        string  `json:"nik"`
+	Nama       string  `json:"nama"`
 	NoHP       string  `json:"no_hp"`
 	NoRekening string  `json:"no_rekening"`
 	Saldo      float64 `json:"saldo"`

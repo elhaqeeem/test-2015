@@ -1,12 +1,13 @@
 -- db/migrations/001_create_nasabah_table.sql
 CREATE TABLE nasabah (
     id SERIAL PRIMARY KEY,
+    nama VARCHAR(100) NOT NULL,
     nik VARCHAR(16) UNIQUE NOT NULL,
     no_hp VARCHAR(15) UNIQUE NOT NULL,
     no_rekening VARCHAR(20) UNIQUE NOT NULL,
     saldo DECIMAL(15,2) DEFAULT 0 NOT NULL
-
 );
+
 
 CREATE TABLE tabungan (
     id SERIAL PRIMARY KEY,
