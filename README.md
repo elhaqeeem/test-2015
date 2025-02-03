@@ -23,7 +23,12 @@ API_PORT=
 ```
 
 jalankan 
+jika mengunakan docker
+```
 
+docker-compose up --build
+```
+jika tidak menggunakan docker
 ```
 go run main.go
 
